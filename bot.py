@@ -10,6 +10,8 @@ from collections import defaultdict
 import json
 import aiohttp
 from urllib.parse import quote_plus
+from datetime import datetime, timedelta
+from discord.ext import tasks
 
 # Set up logging
 logging.basicConfig(
@@ -32,19 +34,22 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 # Create models
 text_model = genai.GenerativeModel('gemini-1.5-pro')  # For text conversations
-vision_model = genai.GenerativeModel('gemini-1.5-flash')  # For images/video/audio
+vision_model = genai.GenerativeModel('gemini-1.5-flash', generation_config={
+    'max_output_tokens': 2048,  # Limit token output for vision responses
+    'temperature': 0.4  # Lower temperature for more concise responses
+})  # For images/video/audio
 
 # Set up Discord bot with intents
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='>', intents=intents)
 
 # Bot default personality template
 bot_template = [
     {'role': 'user', 'parts': ["Hi!"]},
-    {'role': 'model', 'parts': ["Hello! I am a Discord bot powered by Google Gemini!"]},
+    {'role': 'model', 'parts': ["Hello! I am 911 Intel, an AI assistant designed by kelpyshades!"]},
     {'role': 'user', 'parts': ["Please give helpful and concise answers."]},
-    {'role': 'model', 'parts': ["I'll do my best to be helpful and concise!"]},
+    {'role': 'model', 'parts': ["I'll do my best to provide you with accurate and concise information. How can I assist you today?"]},
 ]
 
 # Dictionary to store conversation history by channel_id + user_id
@@ -99,20 +104,32 @@ COLORS = {
 @bot.event
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
+    check_conversation_age.start()
+    # Set a custom status activity
+    await bot.change_presence(activity=discord.Activity(
+        type=discord.ActivityType.watching, 
+        name="for intel requests | >help"
+    ))
 
-# Helper function to get a conversation for a specific channel and user
-def get_conversation(channel_id, user_id):
-    conversation_key = f"{channel_id}:{user_id}"
+# Helper function to get a conversation for a specific user (channel-agnostic)
+def get_conversation(user_id):
+    # We no longer need channel_id in the key
+    conversation_key = f"user:{user_id}"
     
     if conversation_key not in conversations:
         try:
-            conversations[conversation_key] = text_model.start_chat(history=bot_template)
-            logger.info(f"Created new conversation for {conversation_key}")
+            # Create new conversation with timestamp
+            conversations[conversation_key] = {
+                "chat": text_model.start_chat(history=bot_template),
+                "created_at": datetime.now()
+            }
+            logger.info(f"Created new conversation for user {user_id}")
         except Exception as e:
             logger.error(f"Error creating conversation: {str(e)}")
             raise
     
-    return conversations[conversation_key]
+    # Return just the chat object from our dictionary
+    return conversations[conversation_key]["chat"]
 
 # Helper function for Gemini API interaction with error handling
 async def get_gemini_response(conversation, question):
@@ -168,7 +185,7 @@ async def ask(ctx, *, question):
     async with ctx.typing():
         try:
             # Get the channel-specific conversation for this user
-            conversation = get_conversation(channel_id, user_id)
+            conversation = get_conversation(user_id)
             
             # Create initial "processing" embed
             processing_embed = discord.Embed(
@@ -207,13 +224,13 @@ async def ask(ctx, *, question):
             else:
                 # Create single embed for the response
                 embed = discord.Embed(
-                    title="🤖 Response",
+                    title="🤖 Gemini Response",
                     description=response_text,
                     color=COLORS["blue"]
                 )
                 
                 # Add metadata footer
-                embed.set_footer(text=f"Requested by {ctx.author.display_name} | Powered by Gemini")
+                embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
                 embed.timestamp = ctx.message.created_at
                 
                 # Edit the processing message with the response
@@ -231,29 +248,31 @@ async def ask(ctx, *, question):
 @bot.command(name='forget')
 async def forget(ctx, target="user"):
     """Reset the conversation history.
-    Usage: !forget [user|channel|all]
-    - user: Clear just your conversation in this channel (default)
-    - channel: Clear all conversations in this channel
-    - all: Clear all your conversations in all channels
+    Usage: >forget [user|all]
+    - user: Clear your conversation (default)
+    - all: Clear all conversations (admin only)
     """
     user_id = str(ctx.author.id)
-    channel_id = str(ctx.channel.id)
     
     keys_to_remove = []
-    conversation_key = f"{channel_id}:{user_id}"
+    conversation_key = f"user:{user_id}"
     
     if target.lower() == "user":
-        # Remove just this user in this channel
+        # Remove just this user's conversation
         keys_to_remove = [conversation_key]
-        target_description = "your conversation in this channel"
-    elif target.lower() == "channel":
-        # Remove all conversations in this channel
-        keys_to_remove = [key for key in conversations.keys() if key.startswith(f"{channel_id}:")]
-        target_description = "all conversations in this channel"
+        target_description = "your conversation history"
+    elif target.lower() == "all" and ctx.author.guild_permissions.administrator:
+        # Remove all conversations (admin only)
+        keys_to_remove = list(conversations.keys())
+        target_description = "all conversation histories"
     elif target.lower() == "all":
-        # Remove all conversations for this user
-        keys_to_remove = [key for key in conversations.keys() if key.endswith(f":{user_id}")]
-        target_description = "all your conversations across all channels"
+        embed = discord.Embed(
+            title="❌ Permission Denied",
+            description="Only administrators can clear all conversations.",
+            color=COLORS["red"]
+        )
+        await ctx.send(embed=embed)
+        return
     
     for key in keys_to_remove:
         if key in conversations:
@@ -316,12 +335,20 @@ async def on_message(message):
         # Remove the mention from the message
         question = message.content.replace(f'<@{bot.user.id}>', '').strip()
         
+        # Improved introduction if no specific question is asked
         if not question:
             embed = discord.Embed(
                 title="👋 Hello there!",
-                description="Yes? Ask me anything!",
+                description=(
+                    f"I'm **911 Intel**, an advanced AI assistant designed by **kelpyshades** and powered by **Google Gemini**!\n\n"
+                    f"My Gemini AI brain allows me to answer questions, analyze images, and search the web for information.\n\n"
+                    f"Try commands like `>ask`, `>image`, or `>search` to see what Gemini can do.\n\n"
+                    f"What intelligence can I gather for you today, {message.author.display_name}?"
+                ),
                 color=COLORS["blue"]
             )
+            # Add bot info footer
+            embed.set_footer(text="911 Intel | Designed by kelpyshades | Powered by Google Gemini 1.5")
             await message.channel.send(embed=embed)
             return
         
@@ -337,7 +364,7 @@ async def on_message(message):
                 processing_message = await message.channel.send(embed=processing_embed)
                 
                 # Get conversation specific to this channel+user
-                conversation = get_conversation(channel_id, user_id)
+                conversation = get_conversation(user_id)
                 
                 # Get response from Gemini
                 response_text = await get_gemini_response(conversation, question)
@@ -367,13 +394,13 @@ async def on_message(message):
                 else:
                     # Create single embed for the response
                     embed = discord.Embed(
-                        title="🤖 Response",
+                        title="🤖 Gemini Response",
                         description=response_text,
                         color=COLORS["blue"]
                     )
                     
                     # Add metadata footer
-                    embed.set_footer(text=f"Requested by {message.author.display_name} | Powered by Gemini")
+                    embed.set_footer(text=f"Requested by {message.author.display_name} | 911 Intel | Designed by kelpyshades")
                     embed.timestamp = message.created_at
                     
                     # Edit the processing message with the response
@@ -426,8 +453,8 @@ async def process_image(ctx):
         try:
             # Create processing embed
             processing_embed = discord.Embed(
-                title="🔍 Analyzing image...",
-                description="Please wait while I process the image.",
+                title="🔍 Gemini is analyzing your image...",
+                description="Please wait while Gemini processes the image.",
                 color=COLORS["blue"]
             )
             processing_embed.set_image(url=attachment.url)
@@ -438,13 +465,13 @@ async def process_image(ctx):
             
             # Generate a response based on the image using gemini-1.5-flash
             response = vision_model.generate_content([
-                "Describe what you see in this image in detail.",
+                "Describe what you see in this image briefly but accurately. Keep your response under 2000 characters.",
                 image_data
-            ])
+            ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
             embed = discord.Embed(
-                title="🖼️ Image Analysis",
+                title="🖼️ Gemini Image Analysis",
                 description=response.text,
                 color=COLORS["blue"]
             )
@@ -453,7 +480,7 @@ async def process_image(ctx):
             embed.set_image(url=attachment.url)
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | Powered by Gemini 1.5 Flash")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -518,9 +545,9 @@ async def process_video(ctx):
             
             # Generate a response based on the video using gemini-1.5-flash
             response = vision_model.generate_content([
-                "Describe what's happening in this video.",
+                "Describe what's happening in this video briefly but accurately. Keep your response under 2000 characters.",
                 video_data
-            ])
+            ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
             embed = discord.Embed(
@@ -530,7 +557,7 @@ async def process_video(ctx):
             )
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | Powered by Gemini 1.5 Flash")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -597,9 +624,9 @@ async def process_audio(ctx):
             
             # Generate a response based on the audio using gemini-1.5-flash
             response = vision_model.generate_content([
-                "Transcribe and analyze this audio content.",
+                "Transcribe and analyze this audio content briefly. Keep your response under 2000 characters.",
                 audio_data
-            ])
+            ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
             embed = discord.Embed(
@@ -609,7 +636,7 @@ async def process_audio(ctx):
             )
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | Powered by Gemini 1.5 Flash")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -642,7 +669,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
         embed = discord.Embed(
             title="❓ Command Not Found",
-            description="Command not found. Type `!help` to see available commands.",
+            description="Command not found. Type `>help` to see available commands.",
             color=COLORS["yellow"]
         )
     else:
@@ -665,25 +692,40 @@ async def status(ctx):
         
         # Get conversation counts
         total_conversations = len(conversations)
-        user_conversations = sum(1 for key in conversations.keys() if key.endswith(f":{ctx.author.id}"))
-        channel_conversations = sum(1 for key in conversations.keys() if key.startswith(f"{ctx.channel.id}:"))
+        
+        # Get user's conversation info
+        user_id = str(ctx.author.id)
+        conversation_key = f"user:{user_id}"
+        has_conversation = conversation_key in conversations
+        
+        if has_conversation:
+            created_at = conversations[conversation_key]["created_at"]
+            expiry_date = created_at + timedelta(days=7)
+            days_left = (expiry_date - datetime.now()).days
+            expiry_info = f"Expires in {days_left} days"
+        else:
+            expiry_info = "No active conversation"
         
         # Create status embed
         embed = discord.Embed(
-            title="🤖 Bot Status",
-            description="Here's the current status of the bot and its systems.",
+            title="🤖 911 Intel Status",
+            description="Here's the current status of 911 Intel and its Gemini AI systems.",
             color=COLORS["teal"]
         )
         
         # Add system status fields
         embed.add_field(name="Bot Status", value="✅ Online", inline=True)
         embed.add_field(name="Gemini API", value="✅ Connected", inline=True)
-        embed.add_field(name="Response", value=response.text[:100] + "...", inline=False)
+        embed.add_field(name="Gemini Model", value="gemini-1.5-pro", inline=True)
+        embed.add_field(name="Response Sample", value=response.text[:100] + "...", inline=False)
         
         # Add conversation stats
         embed.add_field(name="Active Conversations", value=str(total_conversations), inline=True)
-        embed.add_field(name="Your Conversations", value=str(user_conversations), inline=True)
-        embed.add_field(name="Channel Conversations", value=str(channel_conversations), inline=True)
+        embed.add_field(name="Your Conversation", value=expiry_info, inline=True)
+        
+        # Add creator info
+        embed.add_field(name="Bot Identity", value="911 Intel", inline=True)
+        embed.add_field(name="Creator", value="kelpyshades", inline=True)
         
         # Add metadata
         embed.set_footer(text=f"Requested by {ctx.author.display_name}")
@@ -776,8 +818,18 @@ async def search(ctx, *, query):
             await progress_message.edit(content=None, embed=embed)
             
         except Exception as e:
-            logger.error(f"Error performing search: {str(e)}")
-            await progress_message.edit(content=f"❌ Sorry, I encountered an error while searching: {str(e)}")
+            if "401" in str(e):
+                error_message = "Search API authentication failed. Please check your SerpAPI key."
+            else:
+                error_message = f"Error performing search: {str(e)}"
+            
+            logger.error(error_message)
+            error_embed = discord.Embed(
+                title="❌ Search Error",
+                description=error_message,
+                color=COLORS["red"]
+            )
+            await progress_message.edit(content=None, embed=error_embed)
 
 async def perform_serpapi_search(query):
     """Perform a search using SerpAPI"""
@@ -847,8 +899,8 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
     
     async def send_bot_help(self, mapping):
         embed = discord.Embed(
-            title="🤖 Bot Commands",
-            description="Here are all the commands you can use:",
+            title="🤖 911 Intel Commands",
+            description="Here are all the commands you can use with 911 Intel, powered by Google Gemini's advanced AI capabilities:",
             color=COLORS["blue"]
         )
         
@@ -857,6 +909,8 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
             if command_signatures:
                 cog_name = getattr(cog, "qualified_name", "No Category")
                 embed.add_field(name=cog_name, value="\n".join(command_signatures), inline=False)
+        
+        embed.set_footer(text="911 Intel | Designed by kelpyshades | Powered by Google Gemini")
         
         channel = self.get_destination()
         await channel.send(embed=embed)
@@ -875,3 +929,50 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
 
 # Set up the custom help command
 bot.help_command = CustomHelpCommand()
+
+# Add a background task to check and reset old conversations
+@tasks.loop(hours=24)  # Check once per day
+async def check_conversation_age():
+    """Check conversation age and reset those older than a week"""
+    current_time = datetime.now()
+    reset_count = 0
+    
+    # Find conversations older than a week
+    for key, value in list(conversations.items()):
+        if current_time - value["created_at"] > timedelta(days=7):
+            del conversations[key]
+            reset_count += 1
+    
+    if reset_count > 0:
+        logger.info(f"Auto-reset {reset_count} conversations that were over a week old")
+
+@bot.command(name='expiry')
+async def check_expiry(ctx):
+    """Check when your current conversation will expire"""
+    user_id = str(ctx.author.id)
+    conversation_key = f"user:{user_id}"
+    
+    if conversation_key not in conversations:
+        embed = discord.Embed(
+            title="No Active Conversation",
+            description="You don't have an active conversation yet.",
+            color=COLORS["yellow"]
+        )
+    else:
+        created_at = conversations[conversation_key]["created_at"]
+        expiry_date = created_at + timedelta(days=7)
+        now = datetime.now()
+        days_left = (expiry_date - now).days
+        hours_left = int(((expiry_date - now).seconds) / 3600)
+        
+        embed = discord.Embed(
+            title="Conversation Expiry",
+            description=f"Your conversation will automatically reset in {days_left} days and {hours_left} hours.",
+            color=COLORS["teal"]
+        )
+        embed.add_field(name="Created", value=created_at.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
+        embed.add_field(name="Expires", value=expiry_date.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
+    
+    embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+    embed.timestamp = ctx.message.created_at
+    await ctx.send(embed=embed)
