@@ -101,6 +101,22 @@ COLORS = {
     "orange": 0xFB8C00     # Search results
 }
 
+# Add a background task to check and reset old conversations
+@tasks.loop(hours=24)  # Check once per day
+async def check_conversation_age():
+    """Check conversation age and reset those older than a week"""
+    current_time = datetime.now()
+    reset_count = 0
+    
+    # Find conversations older than a week
+    for key, value in list(conversations.items()):
+        if current_time - value["created_at"] > timedelta(days=7):
+            del conversations[key]
+            reset_count += 1
+    
+    if reset_count > 0:
+        logger.info(f"Auto-reset {reset_count} conversations that were over a week old")
+
 @bot.event
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
@@ -930,21 +946,7 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
 # Set up the custom help command
 bot.help_command = CustomHelpCommand()
 
-# Add a background task to check and reset old conversations
-@tasks.loop(hours=24)  # Check once per day
-async def check_conversation_age():
-    """Check conversation age and reset those older than a week"""
-    current_time = datetime.now()
-    reset_count = 0
-    
-    # Find conversations older than a week
-    for key, value in list(conversations.items()):
-        if current_time - value["created_at"] > timedelta(days=7):
-            del conversations[key]
-            reset_count += 1
-    
-    if reset_count > 0:
-        logger.info(f"Auto-reset {reset_count} conversations that were over a week old")
+
 
 @bot.command(name='expiry')
 async def check_expiry(ctx):
