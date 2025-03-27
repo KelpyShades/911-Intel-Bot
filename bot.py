@@ -34,7 +34,7 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Create models
-text_model = genai.GenerativeModel('gemini-1.5-pro')  # For text conversations
+text_model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')  # For text conversations
 vision_model = genai.GenerativeModel('gemini-1.5-flash', generation_config={
     'max_output_tokens': 2048,  # Limit token output for vision responses
     'temperature': 0.4  # Lower temperature for more concise responses
