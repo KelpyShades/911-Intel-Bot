@@ -9,9 +9,10 @@ from dotenv import load_dotenv
 from collections import defaultdict
 import json
 import aiohttp
-from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 from discord.ext import tasks
+from PIL import Image
+import io
 
 # Set up logging
 logging.basicConfig(
@@ -98,7 +99,6 @@ COLORS = {
     "green": 0x34A853,     # Success messages
     "teal": 0x00C09A,      # Status and info messages
     "purple": 0xA142F4,    # Special commands
-    "orange": 0xFB8C00     # Search results
 }
 
 # Add a background task to check and reset old conversations
@@ -357,8 +357,8 @@ async def on_message(message):
                 title="👋 Hello there!",
                 description=(
                     f"I'm **911 Intel**, an advanced AI assistant designed by **kelpyshades** and powered by **Google Gemini**!\n\n"
-                    f"My Gemini AI brain allows me to answer questions, analyze images, and search the web for information.\n\n"
-                    f"Try commands like `>ask`, `>image`, or `>search` to see what Gemini can do.\n\n"
+                    f"My Gemini AI brain allows me to answer questions and analyze images.\n\n"
+                    f"Try commands like `>ask` or `>image` to see what Gemini can do.\n\n"
                     f"What intelligence can I gather for you today, {message.author.display_name}?"
                 ),
                 color=COLORS["blue"]
@@ -476,13 +476,16 @@ async def process_image(ctx):
             processing_embed.set_image(url=attachment.url)
             processing_message = await ctx.send(embed=processing_embed)
             
-            # Download the image
+            # Download the image as bytes
             image_data = await attachment.read()
+            
+            # Create PIL Image from bytes
+            image = Image.open(io.BytesIO(image_data))
             
             # Generate a response based on the image using gemini-1.5-flash
             response = vision_model.generate_content([
                 "Describe what you see in this image briefly but accurately. Keep your response under 2000 characters.",
-                image_data
+                image  # Pass the PIL Image object instead of raw bytes
             ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
@@ -559,10 +562,16 @@ async def process_video(ctx):
             # Download the video
             video_data = await video_attachment.read()
             
+            # For video, we need to create a content part with MIME type
+            video_part = {
+                "mime_type": video_attachment.content_type,
+                "data": video_data
+            }
+            
             # Generate a response based on the video using gemini-1.5-flash
             response = vision_model.generate_content([
                 "Describe what's happening in this video briefly but accurately. Keep your response under 2000 characters.",
-                video_data
+                video_part  # Pass properly formatted content part
             ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
@@ -638,10 +647,30 @@ async def process_audio(ctx):
             # Download the audio
             audio_data = await audio_attachment.read()
             
+            # For audio, we need to create a content part with MIME type
+            mime_type = audio_attachment.content_type
+            if not mime_type or 'audio/' not in mime_type:
+                # Fallback mime type based on file extension
+                if audio_attachment.filename.endswith('.mp3'):
+                    mime_type = 'audio/mpeg'
+                elif audio_attachment.filename.endswith('.wav'):
+                    mime_type = 'audio/wav'
+                elif audio_attachment.filename.endswith('.ogg'):
+                    mime_type = 'audio/ogg'
+                elif audio_attachment.filename.endswith('.m4a'):
+                    mime_type = 'audio/mp4'
+                else:
+                    mime_type = 'audio/mpeg'  # Default fallback
+            
+            audio_part = {
+                "mime_type": mime_type,
+                "data": audio_data
+            }
+            
             # Generate a response based on the audio using gemini-1.5-flash
             response = vision_model.generate_content([
                 "Transcribe and analyze this audio content briefly. Keep your response under 2000 characters.",
-                audio_data
+                audio_part  # Pass the properly formatted content part
             ], generation_config={'max_output_tokens': 1024})
             
             # Create response embed
@@ -758,141 +787,36 @@ async def status(ctx):
         )
         await ctx.send(embed=error_embed)
 
-@bot.command(name='search')
-async def search(ctx, *, query):
-    """Search the web using SerpAPI and enhance results with Gemini"""
+@bot.command(name='expiry')
+async def check_expiry(ctx):
+    """Check when your current conversation will expire"""
     user_id = str(ctx.author.id)
+    conversation_key = f"user:{user_id}"
     
-    # Check rate limits
-    is_user_limited = await user_limiter.add_call(user_id)
-    is_global_limited = await global_limiter.add_call("global")
-    
-    if is_user_limited or is_global_limited:
-        retry_after = max(
-            await user_limiter.get_retry_after(user_id),
-            await global_limiter.get_retry_after("global")
+    if conversation_key not in conversations:
+        embed = discord.Embed(
+            title="No Active Conversation",
+            description="You don't have an active conversation yet.",
+            color=COLORS["yellow"]
         )
-        await ctx.send(f"Rate limit reached. Please try again in {retry_after:.1f} seconds.")
-        return
+    else:
+        created_at = conversations[conversation_key]["created_at"]
+        expiry_date = created_at + timedelta(days=7)
+        now = datetime.now()
+        days_left = (expiry_date - now).days
+        hours_left = int(((expiry_date - now).seconds) / 3600)
+        
+        embed = discord.Embed(
+            title="Conversation Expiry",
+            description=f"Your conversation will automatically reset in {days_left} days and {hours_left} hours.",
+            color=COLORS["teal"]
+        )
+        embed.add_field(name="Created", value=created_at.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
+        embed.add_field(name="Expires", value=expiry_date.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
     
-    # Let users know we're processing their search
-    progress_message = await ctx.send("🔎 Searching the web...")
-    
-    async with ctx.typing():
-        try:
-            # 1. Get search results from SerpAPI
-            search_results = await perform_serpapi_search(query)
-            
-            if not search_results:
-                await progress_message.edit(content="😕 Sorry, I couldn't find any relevant search results.")
-                return
-            
-            # 2. Format search results for Gemini
-            formatted_results = format_search_results_for_gemini(search_results)
-            
-            # 3. Generate response using Gemini
-            prompt = f"""
-            I searched the web for: "{query}"
-            
-            Here are the search results:
-            {formatted_results}
-            
-            Please provide a comprehensive but concise summary based on these search results.
-            Answer the query "{query}" using the information from these sources.
-            Include the most relevant facts and cite your sources using [1], [2], etc. 
-            Format your response in a way that's easy to read.
-            """
-            
-            response = text_model.generate_content(prompt)
-            
-            # 4. Create a nice looking embed
-            embed = discord.Embed(
-                title=f"🔍 Search results for: {query}",
-                description=response.text,
-                color=COLORS["orange"]
-            )
-            
-            # Add footer with sources
-            sources_text = ""
-            for i, result in enumerate(search_results[:5]):
-                sources_text += f"[{i+1}] [{result['title']}]({result['link']})\n"
-                if len(sources_text) > 900:  # Avoid Discord's field value limit
-                    sources_text += "...(more results available)"
-                    break
-                    
-            if sources_text:
-                embed.add_field(name="📚 Sources", value=sources_text, inline=False)
-            
-            # Set thumbnail if available
-            if search_results and "thumbnail" in search_results[0]:
-                embed.set_thumbnail(url=search_results[0]["thumbnail"])
-            
-            # Add timestamp
-            embed.timestamp = ctx.message.created_at
-            
-            # 5. Send the embed
-            await progress_message.edit(content=None, embed=embed)
-            
-        except Exception as e:
-            if "401" in str(e):
-                error_message = "Search API authentication failed. Please check your SerpAPI key."
-            else:
-                error_message = f"Error performing search: {str(e)}"
-            
-            logger.error(error_message)
-            error_embed = discord.Embed(
-                title="❌ Search Error",
-                description=error_message,
-                color=COLORS["red"]
-            )
-            await progress_message.edit(content=None, embed=error_embed)
-
-async def perform_serpapi_search(query):
-    """Perform a search using SerpAPI"""
-    SERPAPI_KEY = os.getenv('SERPAPI_KEY')
-    
-    if not SERPAPI_KEY:
-        raise ValueError("Missing SerpAPI key in environment variables")
-    
-    encoded_query = quote_plus(query)
-    url = f"https://serpapi.com/search.json?q={encoded_query}&api_key={SERPAPI_KEY}&num=8"
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                logger.error(f"SerpAPI error: {error_text}")
-                raise Exception(f"Search API returned status {response.status}")
-            
-            data = await response.json()
-            
-            if "organic_results" not in data:
-                return []
-                
-            results = []
-            for item in data["organic_results"][:8]:  # Get top 8 results
-                result = {
-                    "title": item.get("title", ""),
-                    "link": item.get("link", ""),
-                    "snippet": item.get("snippet", "No description available.")
-                }
-                
-                # Add thumbnail if available
-                if "thumbnail" in item:
-                    result["thumbnail"] = item["thumbnail"]
-                    
-                results.append(result)
-                
-            return results
-
-def format_search_results_for_gemini(results):
-    """Format search results into a string for Gemini"""
-    formatted = ""
-    for i, result in enumerate(results):
-        formatted += f"[{i+1}] {result['title']}\n"
-        formatted += f"URL: {result['link']}\n"
-        formatted += f"Snippet: {result['snippet']}\n\n"
-    return formatted
+    embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+    embed.timestamp = ctx.message.created_at
+    await ctx.send(embed=embed)
 
 # Run the bot with connection error handling
 def run_bot():
@@ -945,36 +869,3 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
 
 # Set up the custom help command
 bot.help_command = CustomHelpCommand()
-
-
-
-@bot.command(name='expiry')
-async def check_expiry(ctx):
-    """Check when your current conversation will expire"""
-    user_id = str(ctx.author.id)
-    conversation_key = f"user:{user_id}"
-    
-    if conversation_key not in conversations:
-        embed = discord.Embed(
-            title="No Active Conversation",
-            description="You don't have an active conversation yet.",
-            color=COLORS["yellow"]
-        )
-    else:
-        created_at = conversations[conversation_key]["created_at"]
-        expiry_date = created_at + timedelta(days=7)
-        now = datetime.now()
-        days_left = (expiry_date - now).days
-        hours_left = int(((expiry_date - now).seconds) / 3600)
-        
-        embed = discord.Embed(
-            title="Conversation Expiry",
-            description=f"Your conversation will automatically reset in {days_left} days and {hours_left} hours.",
-            color=COLORS["teal"]
-        )
-        embed.add_field(name="Created", value=created_at.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
-        embed.add_field(name="Expires", value=expiry_date.strftime("%Y-%m-%d %H:%M:%S"), inline=True)
-    
-    embed.set_footer(text=f"Requested by {ctx.author.display_name}")
-    embed.timestamp = ctx.message.created_at
-    await ctx.send(embed=embed)

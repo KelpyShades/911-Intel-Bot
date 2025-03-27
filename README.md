@@ -2,16 +2,14 @@
 
 A powerful Discord bot powered by Google Gemini AI, designed by kelpyshades.
 
-
 ## Overview
 
-911 Intel is an advanced AI assistant for Discord that leverages Google's Gemini AI models to provide intelligent responses, analyze media, and search the web. The bot maintains conversation context across interactions and provides a seamless experience for users.
+911 Intel is an advanced AI assistant for Discord that leverages Google's Gemini AI models to provide intelligent responses and analyze media. The bot maintains conversation context across interactions and provides a seamless experience for users.
 
 ## Features
 
 - **AI Conversations**: Have natural conversations with Google's Gemini 1.5 Pro AI
 - **Media Analysis**: Analyze images, videos, and audio files using Gemini 1.5 Flash
-- **Web Search**: Search the internet and get AI-enhanced summaries of results
 - **Persistent Memory**: Conversations are maintained for each user (with weekly reset)
 - **Rate Limiting**: Prevents abuse with per-user and global rate limits
 - **Discord Embeds**: All responses are formatted in beautiful Discord embeds
@@ -23,7 +21,6 @@ A powerful Discord bot powered by Google Gemini AI, designed by kelpyshades.
 - Python 3.8 or higher
 - A Discord bot token (from [Discord Developer Portal](https://discord.com/developers/applications))
 - A Google Gemini API key (from [Google AI Studio](https://makersuite.google.com/app/apikey))
-- A SerpAPI key for web search functionality (from [SerpAPI](https://serpapi.com/))
 
 ### Installation
 
@@ -45,7 +42,6 @@ A powerful Discord bot powered by Google Gemini AI, designed by kelpyshades.
    ```
    DISCORD_BOT_TOKEN=your_discord_bot_token
    GEMINI_API_KEY=your_gemini_api_key
-   SERPAPI_KEY=your_serpapi_key
    ```
 
 4. Run the bot:
@@ -59,7 +55,6 @@ A powerful Discord bot powered by Google Gemini AI, designed by kelpyshades.
 - `>image` - Analyze an attached image (must include an attachment)
 - `>video` - Analyze an attached video (must include an attachment)
 - `>audio` - Analyze an attached audio file (must include an attachment)
-- `>search [query]` - Search the web and get AI-enhanced results
 - `>forget [user|all]` - Reset your conversation history or all conversations (admin only)
 - `>status` - Check the bot's status and API connectivity
 - `>expiry` - Check when your conversation will automatically reset
@@ -80,7 +75,6 @@ You can also mention the bot directly (`@911 Intel`) with a question to get a re
 | ------------------- | ---------------------------------------------------------- |
 | `DISCORD_BOT_TOKEN` | Your Discord bot's token from the Discord Developer Portal |
 | `GEMINI_API_KEY`    | Your Google Gemini API key                                 |
-| `SERPAPI_KEY`       | Your SerpAPI key for web search functionality              |
 
 ## Deployment
 
@@ -127,7 +121,6 @@ You can also mention the bot directly (`@911 Intel`) with a question to get a re
 - **Creator**: kelpyshades
 - **AI**: Google Gemini 1.5 Pro & Flash
 - **Discord API**: discord.py
-- **Search**: SerpAPI
 
 ## License
 
