@@ -72,7 +72,7 @@ def get_conversation(channel_id, user_id):
     
     if conversation_key not in conversations:
         try:
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
             conversations[conversation_key] = model.start_chat(history=bot_template)
             logger.info(f"Created new conversation for {conversation_key}")
         except Exception as e:
@@ -309,3 +309,4 @@ async def test_multimodal():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

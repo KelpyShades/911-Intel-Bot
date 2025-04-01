@@ -38,7 +38,7 @@ text_model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')  # For
 vision_model = genai.GenerativeModel('gemini-1.5-flash', generation_config={
     'max_output_tokens': 2048,  # Limit token output for vision responses
     'temperature': 0.4  # Lower temperature for more concise responses
-})  # For images/video/audio
+})  # For images/video/audioc
 
 # Set up Discord bot with intents
 intents = discord.Intents.default()
@@ -48,7 +48,7 @@ bot = commands.Bot(command_prefix='>', intents=intents)
 # Bot default personality template
 bot_template = [
     {'role': 'user', 'parts': ["Hi!"]},
-    {'role': 'model', 'parts': ["Hello! I am 911 Intel, an AI assistant designed by kelpyshades!"]},
+    {'role': 'model', 'parts': ["Hello! I am 911 Intel, an AI assistant designed by KelpyShades!"]},
     {'role': 'user', 'parts': ["Please give helpful and concise answers."]},
     {'role': 'model', 'parts': ["I'll do my best to provide you with accurate and concise information. How can I assist you today?"]},
 ]
@@ -246,7 +246,7 @@ async def ask(ctx, *, question):
                 )
                 
                 # Add metadata footer
-                embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
+                embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by KelpyShades")
                 embed.timestamp = ctx.message.created_at
                 
                 # Edit the processing message with the response
@@ -356,7 +356,7 @@ async def on_message(message):
             embed = discord.Embed(
                 title="👋 Hello there!",
                 description=(
-                    f"I'm **911 Intel**, an advanced AI assistant designed by **kelpyshades** and powered by **Google Gemini**!\n\n"
+                    f"I'm **911 Intel**, an advanced AI assistant designed by **KelpyShades** and powered by **Google Gemini**!\n\n"
                     f"My Gemini AI brain allows me to answer questions and analyze images.\n\n"
                     f"Try commands like `>ask` or `>image` to see what Gemini can do.\n\n"
                     f"What intelligence can I gather for you today, {message.author.display_name}?"
@@ -364,7 +364,7 @@ async def on_message(message):
                 color=COLORS["blue"]
             )
             # Add bot info footer
-            embed.set_footer(text="911 Intel | Designed by kelpyshades | Powered by Google Gemini 1.5")
+            embed.set_footer(text="911 Intel | Designed by KelpyShades | Powered by Google Gemini 1.5")
             await message.channel.send(embed=embed)
             return
         
@@ -416,7 +416,7 @@ async def on_message(message):
                     )
                     
                     # Add metadata footer
-                    embed.set_footer(text=f"Requested by {message.author.display_name} | 911 Intel | Designed by kelpyshades")
+                    embed.set_footer(text=f"Requested by {message.author.display_name} | 911 Intel | Designed by KelpyShades")
                     embed.timestamp = message.created_at
                     
                     # Edit the processing message with the response
@@ -499,7 +499,7 @@ async def process_image(ctx):
             embed.set_image(url=attachment.url)
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by KelpyShades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -582,7 +582,7 @@ async def process_video(ctx):
             )
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by KelpyShades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -681,7 +681,7 @@ async def process_audio(ctx):
             )
             
             # Add metadata
-            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by kelpyshades")
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} | 911 Intel | Designed by KelpyShades")
             embed.timestamp = ctx.message.created_at
             
             # Edit the processing message with the response
@@ -732,7 +732,7 @@ async def status(ctx):
     """Check the bot's status and API health"""
     try:
         # Test Gemini API
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp-01-21')
         response = model.generate_content("Hello")
         
         # Get conversation counts
@@ -761,7 +761,7 @@ async def status(ctx):
         # Add system status fields
         embed.add_field(name="Bot Status", value="✅ Online", inline=True)
         embed.add_field(name="Gemini API", value="✅ Connected", inline=True)
-        embed.add_field(name="Gemini Model", value="gemini-1.5-pro", inline=True)
+        embed.add_field(name="Gemini Model", value="gemini-2.0-flash-thinking-exp-01-21", inline=True)
         embed.add_field(name="Response Sample", value=response.text[:100] + "...", inline=False)
         
         # Add conversation stats
@@ -770,7 +770,7 @@ async def status(ctx):
         
         # Add creator info
         embed.add_field(name="Bot Identity", value="911 Intel", inline=True)
-        embed.add_field(name="Creator", value="kelpyshades", inline=True)
+        embed.add_field(name="Creator", value="KelpyShades", inline=True)
         
         # Add metadata
         embed.set_footer(text=f"Requested by {ctx.author.display_name}")
@@ -850,7 +850,7 @@ class CustomHelpCommand(commands.DefaultHelpCommand):
                 cog_name = getattr(cog, "qualified_name", "No Category")
                 embed.add_field(name=cog_name, value="\n".join(command_signatures), inline=False)
         
-        embed.set_footer(text="911 Intel | Designed by kelpyshades | Powered by Google Gemini")
+        embed.set_footer(text="911 Intel | Designed by KelpyShades | Powered by Google Gemini")
         
         channel = self.get_destination()
         await channel.send(embed=embed)
